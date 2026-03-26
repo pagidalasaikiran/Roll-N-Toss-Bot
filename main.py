@@ -8,22 +8,25 @@ import asyncio
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-import os
+# ✅ FIXED: use environment variables
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 FILE_NAME = "results.json"
 
-# Load data
+# Load data safely
 if os.path.exists(FILE_NAME):
-    with open(FILE_NAME, "r") as f:
-        results_history = json.load(f)
+    try:
+        with open(FILE_NAME, "r") as f:
+            results_history = json.load(f)
+    except:
+        results_history = []
 else:
     results_history = []
 
 # Multiplayer storage
 active_games = {}
 
-# Anti-spam (faster)
+# Anti-spam
 user_last_play = {}
 
 def can_play(user_id):
@@ -40,10 +43,13 @@ def get_keyboard():
         resize_keyboard=True
     )
 
-# Async save (NON-BLOCKING)
+# Async save (safe)
 async def save_data():
-    with open(FILE_NAME, "w") as f:
-        json.dump(results_history, f, indent=4)
+    try:
+        with open(FILE_NAME, "w") as f:
+            json.dump(results_history, f, indent=4)
+    except:
+        pass
 
 # Generate game
 def generate_game(is_dice=True):
@@ -122,7 +128,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "hash": hash_value
     })
 
-    # Save asynchronously
     asyncio.create_task(save_data())
 
 # /result
@@ -170,7 +175,7 @@ async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("❌ Game ID not found.")
 
-# /resetit (admin)
+# /resetit
 async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -182,7 +187,7 @@ async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🧹 History reset successfully.")
 
-# /restart (everyone)
+# /restart
 async def restart_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_last_play.clear()
     await update.message.reply_text("♻️ Restarted successfully.")
@@ -245,7 +250,7 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     del active_games[game_id]
 
-# Run
+# Run bot
 app = (
     ApplicationBuilder()
     .token(TOKEN)
