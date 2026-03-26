@@ -10,7 +10,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 import os
 TOKEN = os.getenv("TOKEN")
-ADMIN_ID = 6716641479
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 FILE_NAME = "results.json"
 
 # Load data
