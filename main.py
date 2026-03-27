@@ -1,7 +1,6 @@
 import secrets
 import hashlib
 import time
-import json
 import os
 import datetime
 import asyncio
@@ -9,6 +8,7 @@ import logging
 import threading
 
 from flask import Flask
+from supabase import create_client
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -34,17 +34,10 @@ threading.Thread(target=run_web).start()
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
-FILE_NAME = "results.json"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ------------------ LOAD DATA ------------------
-if os.path.exists(FILE_NAME):
-    try:
-        with open(FILE_NAME, "r") as f:
-            results_history = json.load(f)
-    except:
-        results_history = []
-else:
-    results_history = []
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ------------------ GLOBALS ------------------
 active_games = {}
@@ -63,12 +56,7 @@ def get_keyboard():
         resize_keyboard=True
     )
 
-async def save_data():
-    try:
-        with open(FILE_NAME, "w") as f:
-            json.dump(results_history, f, indent=4)
-    except:
-        pass
+# ------------------ GAME LOGIC ------------------
 
 def generate_game(is_dice=True):
     secret = secrets.token_hex(16)
@@ -134,22 +122,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     timestamp = datetime.datetime.now().strftime("%d %b %I:%M %p")
 
-    results_history.append({
-        "user": username,
-        "user_id": user_id,
-        "game_id": game_id,
-        "type": game_type,
-        "result": result,
-        "time": timestamp,
-        "secret": secret,
-        "hash": hash_value
-    })
-
-    asyncio.create_task(save_data())
+    # SAVE TO SUPABASE
+    try:
+        supabase.table("results").insert({
+            "user_name": username,
+            "user_id": user_id,
+            "game_id": game_id,
+            "type": game_type,
+            "result": str(result),
+            "time": timestamp,
+            "secret": secret,
+            "hash": hash_value
+        }).execute()
+    except Exception as e:
+        print("DB Error:", e)
 
 async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_results = [r for r in results_history if r.get("user_id") == user_id]
+
+    try:
+        response = supabase.table("results").select("*").eq("user_id", user_id).execute()
+        user_results = response.data
+    except Exception as e:
+        print("DB Error:", e)
+        user_results = []
 
     if not user_results:
         await update.message.reply_text("📜 No results yet.")
@@ -170,34 +166,42 @@ async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     gid = context.args[0]
 
-    for r in results_history:
-        if r.get("game_id") == gid:
-            data = f"{r['secret']}:{r['result']}"
-            computed_hash = hashlib.sha256(data.encode()).hexdigest()
-            verified = computed_hash == r["hash"]
+    try:
+        response = supabase.table("results").select("*").eq("game_id", gid).execute()
+        records = response.data
+    except Exception as e:
+        print("DB Error:", e)
+        records = []
 
-            status = "✅ Verified" if verified else "❌ Failed"
+    if not records:
+        await update.message.reply_text("❌ Game ID not found.")
+        return
 
-            await update.message.reply_text(
-                f"🔍 Verification\n\n"
-                f"🆔 {gid}\n"
-                f"🎯 {r['result']}\n\n"
-                f"{status}\n\n"
-                f"🔐 Hash:\n{r['hash']}\n\n"
-                f"🔑 Secret:\n{r['secret']}"
-            )
-            return
+    r = records[0]
 
-    await update.message.reply_text("❌ Game ID not found.")
+    data = f"{r['secret']}:{r['result']}"
+    computed_hash = hashlib.sha256(data.encode()).hexdigest()
+    verified = computed_hash == r["hash"]
+
+    status = "✅ Verified" if verified else "❌ Failed"
+
+    await update.message.reply_text(
+        f"🔍 Verification\n\n"
+        f"🆔 {gid}\n"
+        f"🎯 {r['result']}\n\n"
+        f"{status}\n\n"
+        f"🔐 Hash:\n{r['hash']}\n\n"
+        f"🔑 Secret:\n{r['secret']}"
+    )
 
 async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
-    global results_history
-    results_history = []
-
-    asyncio.create_task(save_data())
+    try:
+        supabase.table("results").delete().neq("id", 0).execute()
+    except Exception as e:
+        print("DB Error:", e)
 
     await update.message.reply_text("🧹 History reset successfully.")
 
