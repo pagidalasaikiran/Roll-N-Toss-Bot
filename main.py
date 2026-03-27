@@ -3,7 +3,6 @@ import hashlib
 import time
 import os
 import datetime
-import asyncio
 import logging
 import threading
 import requests
@@ -28,7 +27,8 @@ def home():
 def run_web():
     app_web.run(host='0.0.0.0', port=8000)
 
-threading.Thread(target=run_web).start()
+# SAFE daemon thread (IMPORTANT)
+threading.Thread(target=run_web, daemon=True).start()
 
 # ------------------ ENV VARIABLES ------------------
 TOKEN = os.getenv("BOT_TOKEN")
@@ -126,7 +126,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     timestamp = datetime.datetime.now().strftime("%d %b %I:%M %p")
 
-    # SAVE TO SUPABASE (REST)
+    # SAVE TO SUPABASE
     try:
         requests.post(
             f"{SUPABASE_URL}/rest/v1/results",
@@ -164,7 +164,7 @@ async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "📜 Your Game History\n\n"
 
-    for r in user_results[:10]:
+    for r in user_results[-10:]:
         emoji = "🎲" if r.get("type") == "Dice" else "🪙"
         text += f"{emoji} {r.get('result')} • {r.get('time')} • {r.get('game_id')}\n"
 
@@ -303,4 +303,5 @@ app.add_handler(CommandHandler("startgame", start_game))
 app.add_handler(CommandHandler("join", join_game))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+# FINAL STABLE POLLING
 app.run_polling(drop_pending_updates=True)
