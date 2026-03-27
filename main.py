@@ -150,7 +150,7 @@ async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/results?user_id=eq.{user_id}&order=id.desc",
+            f"{SUPABASE_URL}/rest/v1/results?user_id=eq.{user_id}&order=id.asc",
             headers=HEADERS
         )
         user_results = response.json()
