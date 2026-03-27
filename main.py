@@ -5,15 +5,38 @@ import json
 import os
 import datetime
 import asyncio
+import logging
+import threading
+
+from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ✅ FIXED: use environment variables
-TOKEN = os.getenv("TOKEN")
+# ------------------ LOGGING ------------------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
+# ------------------ KEEP ALIVE SERVER ------------------
+app_web = Flask(__name__)
+
+@app_web.route('/')
+def home():
+    return "Bot running"
+
+def run_web():
+    app_web.run(host='0.0.0.0', port=8000)
+
+threading.Thread(target=run_web).start()
+
+# ------------------ ENV VARIABLES ------------------
+TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
+
 FILE_NAME = "results.json"
 
-# Load data safely
+# ------------------ LOAD DATA ------------------
 if os.path.exists(FILE_NAME):
     try:
         with open(FILE_NAME, "r") as f:
@@ -23,10 +46,8 @@ if os.path.exists(FILE_NAME):
 else:
     results_history = []
 
-# Multiplayer storage
+# ------------------ GLOBALS ------------------
 active_games = {}
-
-# Anti-spam
 user_last_play = {}
 
 def can_play(user_id):
@@ -36,14 +57,12 @@ def can_play(user_id):
     user_last_play[user_id] = now
     return True
 
-# Keyboard
 def get_keyboard():
     return ReplyKeyboardMarkup(
         [["🎲 Roll Dice", "🪙 Flip Coin"]],
         resize_keyboard=True
     )
 
-# Async save (safe)
 async def save_data():
     try:
         with open(FILE_NAME, "w") as f:
@@ -51,7 +70,6 @@ async def save_data():
     except:
         pass
 
-# Generate game
 def generate_game(is_dice=True):
     secret = secrets.token_hex(16)
 
@@ -68,14 +86,14 @@ def generate_game(is_dice=True):
 
     return game_id, secret, result, hash_value, game_type
 
-# Start
+# ------------------ COMMANDS ------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎮 Welcome to Roll N Toss!\n\nChoose an option below:",
         reply_markup=get_keyboard()
     )
 
-# Help
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 Roll N Toss Help\n\n"
@@ -93,7 +111,6 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text)
 
-# Gameplay
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.first_name
@@ -130,7 +147,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asyncio.create_task(save_data())
 
-# /result
 async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_results = [r for r in results_history if r.get("user_id") == user_id]
@@ -142,12 +158,11 @@ async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "📜 Your Game History\n\n"
 
     for r in user_results[-10:]:
-        emoji = "🎲" if r.get("type", "Dice") == "Dice" else "🪙"
+        emoji = "🎲" if r.get("type") == "Dice" else "🪙"
         text += f"{emoji} {r.get('result')} • {r.get('time')} • {r.get('game_id')}\n"
 
     await update.message.reply_text(text)
 
-# /verify
 async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /verify <game_id>")
@@ -175,7 +190,6 @@ async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("❌ Game ID not found.")
 
-# /resetit
 async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -187,13 +201,12 @@ async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🧹 History reset successfully.")
 
-# /restart
 async def restart_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_last_play.clear()
-    await update.message.reply_text("♻️ Restarted successfully.")
-    os._exit(0)
+    await update.message.reply_text("♻️ Restarted (soft reset).")
 
-# Multiplayer
+# ------------------ MULTIPLAYER ------------------
+
 async def start_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("Usage: /startgame @username")
@@ -250,7 +263,8 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     del active_games[game_id]
 
-# Run bot
+# ------------------ RUN BOT ------------------
+
 app = (
     ApplicationBuilder()
     .token(TOKEN)
