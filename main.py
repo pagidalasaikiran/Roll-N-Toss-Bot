@@ -6,9 +6,9 @@ import datetime
 import asyncio
 import logging
 import threading
+import requests
 
 from flask import Flask
-from supabase import create_client
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -37,7 +37,11 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json"
+}
 
 # ------------------ GLOBALS ------------------
 active_games = {}
@@ -122,18 +126,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     timestamp = datetime.datetime.now().strftime("%d %b %I:%M %p")
 
-    # SAVE TO SUPABASE
+    # SAVE TO SUPABASE (REST)
     try:
-        supabase.table("results").insert({
-            "user_name": username,
-            "user_id": user_id,
-            "game_id": game_id,
-            "type": game_type,
-            "result": str(result),
-            "time": timestamp,
-            "secret": secret,
-            "hash": hash_value
-        }).execute()
+        requests.post(
+            f"{SUPABASE_URL}/rest/v1/results",
+            headers=HEADERS,
+            json={
+                "user_name": username,
+                "user_id": user_id,
+                "game_id": game_id,
+                "type": game_type,
+                "result": str(result),
+                "time": timestamp,
+                "secret": secret,
+                "hash": hash_value
+            }
+        )
     except Exception as e:
         print("DB Error:", e)
 
@@ -141,8 +149,11 @@ async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     try:
-        response = supabase.table("results").select("*").eq("user_id", user_id).execute()
-        user_results = response.data
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/results?user_id=eq.{user_id}&order=id.desc",
+            headers=HEADERS
+        )
+        user_results = response.json()
     except Exception as e:
         print("DB Error:", e)
         user_results = []
@@ -153,7 +164,7 @@ async def result_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "📜 Your Game History\n\n"
 
-    for r in user_results[-10:]:
+    for r in user_results[:10]:
         emoji = "🎲" if r.get("type") == "Dice" else "🪙"
         text += f"{emoji} {r.get('result')} • {r.get('time')} • {r.get('game_id')}\n"
 
@@ -167,8 +178,11 @@ async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gid = context.args[0]
 
     try:
-        response = supabase.table("results").select("*").eq("game_id", gid).execute()
-        records = response.data
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/results?game_id=eq.{gid}",
+            headers=HEADERS
+        )
+        records = response.json()
     except Exception as e:
         print("DB Error:", e)
         records = []
@@ -199,7 +213,10 @@ async def reset_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        supabase.table("results").delete().neq("id", 0).execute()
+        requests.delete(
+            f"{SUPABASE_URL}/rest/v1/results?id=gt.0",
+            headers=HEADERS
+        )
     except Exception as e:
         print("DB Error:", e)
 
