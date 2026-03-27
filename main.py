@@ -27,7 +27,6 @@ def home():
 def run_web():
     app_web.run(host='0.0.0.0', port=8000)
 
-# SAFE daemon thread (IMPORTANT)
 threading.Thread(target=run_web, daemon=True).start()
 
 # ------------------ ENV VARIABLES ------------------
@@ -124,7 +123,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(message, reply_markup=get_keyboard())
 
-    timestamp = datetime.datetime.now().strftime("%d %b %I:%M %p")
+    # ✅ IST TIME FIX ONLY
+    ist_time = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
+    timestamp = ist_time.strftime("%d %b %I:%M %p")
 
     # SAVE TO SUPABASE
     try:
@@ -303,5 +304,4 @@ app.add_handler(CommandHandler("startgame", start_game))
 app.add_handler(CommandHandler("join", join_game))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# FINAL STABLE POLLING
 app.run_polling(drop_pending_updates=True)
